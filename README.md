@@ -117,6 +117,11 @@ Against a bag, set `use_sim_time` so the freshness checks follow the recorded cl
 ros2 launch mrs_ultraloc uwb_uvdar_fusion.launch.py use_sim_time:=true
 ```
 
+`pipeline.launch.py` starts the UWB driver and the UVDAR bearing endpoint alongside this node, in one namespace, for a
+bench test with everything on one computer. It recomputes the two input topics from the namespace rather than taking
+them from the file above, and it does not start a camera - its docstring covers both, and what a run without a camera
+or a module in range is expected to look like.
+
 ### Finding the id pairing
 
 `uwb_uvdar_id_pairs` defaults to the four pairs the ROS 1 fusion used — `0xAA:28`, `0xBB:29`, `0xCC:30`, `0xDD:31`.

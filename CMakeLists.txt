@@ -18,6 +18,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -75,6 +76,29 @@ ament_target_dependencies(uwb_uvdar_fusion_node
 
 install(TARGETS uwb_uvdar_fusion_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+# The two simulator nodes. PROGRAMS, not TARGETS: these are Python scripts with a
+# shebang, and this keeps them executable and puts them beside the node they are
+# started next to, which is what `ros2 run mrs_ultraloc <name>` and a launch file's
+# `executable=` both resolve.
+install(PROGRAMS
+  scripts/sim_uwb_module.py
+  scripts/sim_uvdar_target.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# The trajectory module the two scripts import. ament_python_install_package() is used
+# rather than a plain install(DIRECTORY) because it is the one that registers the
+# package's Python directory with the environment hooks, so `import sim_ultraloc` works
+# in a sourced shell and in a test process without anything editing sys.path by hand.
+#
+# The first argument is the *import* name, not this package's name - it is also the
+# directory installed under the Python dir and the name setuptools puts in the egg-info.
+# It has to match the directory on disk for the import to resolve, which is why the
+# module is called sim_ultraloc rather than being nested under mrs_ultraloc.
+ament_python_install_package(sim_ultraloc
+  PACKAGE_DIR sim_ultraloc
 )
 
 install(DIRECTORY launch config

@@ -30,6 +30,12 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
+  <!-- The two simulator nodes under scripts/ are Python, so rclpy is needed at run
+       time and not only by the tests. Kept in test_depend as well: a dependency is
+       satisfied by whichever entry applies, and dropping it from test_depend would
+       make the test's own requirement implicit. -->
+  <exec_depend>rclpy</exec_depend>
+
   <!-- The integration tests drive the real node over real topics, so they need
        rclpy and pytest at run time as well as at test-build time. -->
   <test_depend>ament_cmake_pytest</test_depend>

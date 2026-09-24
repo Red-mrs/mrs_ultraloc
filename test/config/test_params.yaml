@@ -1,0 +1,51 @@
+# Parameters for the integration tests. Keyed /** so it applies under any
+# namespace, for the reason documented in config/uwb_uvdar_fusion.yaml.
+#
+# Every value a test asserts on is pinned here rather than left to the node's
+# defaults, so changing a default in the code cannot silently change what the
+# tests expect.
+
+/**:
+  ros__parameters:
+
+    # Absolute topics, one set per test node, so a test cannot pick up traffic from
+    # a real fusion node that happens to be running on the same machine.
+    bearing_topic: "/test_fusion/bearing"
+    uwb_topic: "/test_fusion/uwb"
+    output_topic: "/test_fusion/targets"
+
+    publish_rate_hz: 20.0
+
+    # Short enough that the staleness test finishes in about a second, long enough
+    # that a test publishing at 50 Hz is never gated out by discovery jitter.
+    bearing_timeout_sec: 0.5
+    range_timeout_sec: 0.8
+
+    min_range_m: 0.3
+    max_range_m: 50.0
+
+    # The covariance tests assert on these exact numbers.
+    bearing_sigma_rad: 0.02
+    range_sigma_m: 0.30
+    min_range_variance_m2: 0.01
+
+    # One pair per test. Reusing a pair across tests would let a range left fresh
+    # from an earlier test satisfy a later test's assertion - the node keeps the
+    # newest sample per address for range_timeout_sec, so a second test on the same
+    # address could fuse the previous test's distance before its own arrived.
+    # Addresses sit in the 0xE0/0xF0 block to stay clear of a real setup's.
+    uwb_uvdar_id_pairs: [
+      "0xE1:101", "0xE2:102", "0xE3:103", "0xE4:104", "0xE5:105",
+      "0xE6:106", "0xE7:107", "0xE8:108", "0xE9:109", "0xEA:110",
+      "0xEB:111", "0xEC:112", "0xED:113", "0xEE:114", "0xEF:115",
+      "0xF0:116", "0xF1:117", "0xF2:118", "0xF3:119",
+    ]
+
+    # Diagnostics warn about pair members that never report, which is every member
+    # except the one a given test is using. Tests assert on topics, not on log
+    # output, so the warnings are only noise here.
+    diagnostics_rate_hz: 0.0
+
+    queue_depth: 20
+
+    debug: false

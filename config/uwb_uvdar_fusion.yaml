@@ -1,0 +1,66 @@
+# Parameters for the UWB + UVDAR fusion node.
+#
+# The top-level key is /** rather than the node name, because a parameter file is
+# matched against a node's fully qualified name: with the node launched in a
+# namespace, as the launch file does, a bare "uwb_uvdar_fusion:" key matches
+# nothing and every value below is silently ignored - no warning, no error, just
+# the code defaults. This file is only ever passed to this one node, so matching
+# any node is exactly the right scope and it keeps working under any namespace.
+
+/**:
+  ros__parameters:
+
+    # Inputs. Both default to absolute topics because the producers namespace
+    # themselves independently of this node: the bearing endpoint publishes under
+    # the UAV namespace configured in uvdar_core's config file, and the UWB driver
+    # publishes relative to whatever container it runs in.
+    bearing_topic: "/uav/uvdar/bearing/camera_0/observations"
+    uwb_topic: "/uav/uwb/distance"
+
+    # Relative to this node, so it lands in the node's namespace.
+    output_topic: "uwb_uvdar_fusion/targets"
+
+    # How often the newest bearing and newest range are combined and published.
+    # Ranges come in bursts of a few hertz, so raising this above the range rate
+    # only republishes the same fusion more smoothly.
+    publish_rate_hz: 20.0
+
+    # A bearing or range older than this is not used. The bearing timeout should be
+    # a few bearing periods; the range timeout has to cover the gap between range
+    # bursts, which is a couple of seconds when the peer is far away.
+    bearing_timeout_sec: 1.0
+    range_timeout_sec: 2.0
+
+    # Ranges outside this window are dropped rather than stored. The lower bound
+    # removes the invalid fixes the modules report as a short distance; the upper
+    # bound removes multipath outliers.
+    min_range_m: 0.1
+    max_range_m: 1000.0
+
+    # Which vehicle is which. The UWB side is a module address, written in
+    # hexadecimal; the UVDAR side is the signal id the tracker decodes from that
+    # vehicle's blinker. Both sides must be unique in the list.
+    #
+    # These are the four pairs the ROS 1 fusion used.
+    uwb_uvdar_id_pairs: ["0xAA:28", "0xBB:29", "0xCC:30", "0xDD:31"]
+
+    # Covariance reported on the output. When the bearing message carries a usable
+    # 3x3 covariance it is propagated through the range scaling, and these describe
+    # what is added to it:
+    #   range_sigma_m          - standard deviation of the UWB range, radial only
+    #   min_range_variance_m2  - floor on that radial variance, so a close-range
+    #                            target is never reported as exactly known
+    # When the bearing carries no covariance, bearing_sigma_rad is used as its
+    # angular standard deviation instead, in the tangent plane.
+    bearing_sigma_rad: 0.02
+    range_sigma_m: 0.30
+    min_range_variance_m2: 0.01
+
+    # Rate of the "no target fused" and "never seen this id" warnings. Set to 0 to
+    # silence diagnostics entirely.
+    diagnostics_rate_hz: 0.5
+
+    queue_depth: 10
+
+    # Logs every accepted range and every fused target at INFO.
+    debug: false

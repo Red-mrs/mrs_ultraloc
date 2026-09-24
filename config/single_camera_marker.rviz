@@ -1,0 +1,113 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 78
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Fusion targets1
+      Splitter Ratio: 0.5
+    Tree Height: 464
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.6
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 150; 150; 156
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 15
+      Reference Frame: <Fixed Frame>
+      Value: true
+      # 1 m cells, so a target's distance is readable straight off the floor. The camera
+      # sits at the origin, which puts the whole simulated flight - 1 to 5 m out - on the
+      # grid rather than off the edge of it.
+    - Class: rviz_default_plugins/TF
+      Enabled: false
+      Marker Scale: 1
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Update Interval: 0
+      Value: false
+      # Off: the fusion publishes positions and publishes no TF, so there is normally one
+      # frame to draw and it is the one the grid is already drawn in. Turn it on to check a
+      # real camera-frame join visually once one exists.
+    # NOTE the class: rviz_default_plugins/MarkerArray, NOT /Marker. `Marker` is the
+    # display for a single visualization_msgs/Marker and subscribes with that type, so
+    # pointing it at this topic leaves RViz subscribed to /markers as a different message
+    # type than the node publishes - no error, no warning, nothing on screen, and the only
+    # trace is `ros2 topic echo /markers` reporting two types for one name.
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Fusion targets
+      Namespaces:
+        mrs_ultraloc: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /markers
+      Value: true
+      # Absolute topic on purpose: the node publishes there regardless of the uav_name it
+      # is launched with, so this file is correct for any rig on this machine without being
+      # edited or remapped.
+      #
+      # Everything - camera axes, target points, trails, covariance ellipsoids, labels -
+      # arrives on that one topic as one MarkerArray, which is why this file needs exactly
+      # one display and nothing to click. See scripts/single_camera_marker.py.
+  Enabled: true
+  Global Options:
+    Background Color: 30; 30; 36
+    # The frame the UVDAR bearing endpoint stamps its messages with and which the fusion
+    # node copies through unchanged. RViz has to resolve the fixed frame, and there is no
+    # TF tree to transform into here, so the fixed frame has to be the data's own frame.
+    Fixed Frame: camera_0_optical_frame
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 9
+      # The path spans +/-2 m in depth about x = 3, so centring the view there keeps the
+      # whole square on screen instead of half of it behind the camera.
+      Focal Point:
+        X: 3
+        Y: 0
+        Z: 0
+      Name: Current View
+      Near Clip Distance: 0.01
+      # Yaw pi looks back along -x, so the optical axis +x points into the screen and the
+      # target's square path - which lives in the x-z plane - is seen face-on. RViz's
+      # default view looks down -z, which would show the entire flight as a single line.
+      Pitch: 0.3
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz)
+      Yaw: 3.14
+    Saved: ~

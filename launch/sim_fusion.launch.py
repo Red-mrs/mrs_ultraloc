@@ -73,9 +73,9 @@ UWB_OUTPUT_TOPIC = "uwb/distance"
 PINNED_UAV_NAME = "uav"
 
 # A trajectory parameter SquareOrbit decides for itself is sent to the nodes as this
-# sentinel, which they translate back into "you choose" - see CORNER_RADIUS_AUTO in
-# sim_ultraloc/sim_parameters.py. Kept in sync by hand because a launch file cannot
-# import from the package's Python directory at description-build time.
+# sentinel, which they translate back into "you choose". Mirrors CORNER_RADIUS_AUTO in
+# ultraloc_tools/parameters.py; a literal rather than an import so that evaluating this
+# file does not depend on the install being complete.
 CORNER_RADIUS_AUTO = "-1"
 
 # The geometry arguments, in the order the nodes expect them. Both simulators are given

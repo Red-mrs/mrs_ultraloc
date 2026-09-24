@@ -36,6 +36,13 @@
        make the test's own requirement implicit. -->
   <exec_depend>rclpy</exec_depend>
 
+  <!-- single_camera_marker.launch.py starts RViz. Kept as exec_depend rather than
+       a hard depend: the marker node itself is useful headless, publishing markers
+       for someone else's RViz or a rosbag, and nothing about it needs a GUI. -->
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
   <!-- The integration tests drive the real node over real topics, so they need
        rclpy and pytest at run time as well as at test-build time. -->
   <test_depend>ament_cmake_pytest</test_depend>

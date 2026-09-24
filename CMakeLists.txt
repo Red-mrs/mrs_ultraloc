@@ -85,20 +85,21 @@ install(TARGETS uwb_uvdar_fusion_node
 install(PROGRAMS
   scripts/sim_uwb_module.py
   scripts/sim_uvdar_target.py
+  scripts/single_camera_marker.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# The trajectory module the two scripts import. ament_python_install_package() is used
-# rather than a plain install(DIRECTORY) because it is the one that registers the
-# package's Python directory with the environment hooks, so `import sim_ultraloc` works
-# in a sourced shell and in a test process without anything editing sys.path by hand.
+# The shared helpers the Python nodes import: parameter coercion, and the trajectory the
+# two simulators agree on. ament_python_install_package() is used rather than a plain
+# install(DIRECTORY) because it is the one that registers the package's Python directory
+# with the environment hooks, so `import ultraloc_tools` works in a sourced shell and in
+# a test process without anything editing sys.path by hand.
 #
 # The first argument is the *import* name, not this package's name - it is also the
-# directory installed under the Python dir and the name setuptools puts in the egg-info.
-# It has to match the directory on disk for the import to resolve, which is why the
-# module is called sim_ultraloc rather than being nested under mrs_ultraloc.
-ament_python_install_package(sim_ultraloc
-  PACKAGE_DIR sim_ultraloc
+# directory installed under the Python dir and the name setuptools puts in the egg-info,
+# and it has to match the directory on disk for the import to resolve.
+ament_python_install_package(ultraloc_tools
+  PACKAGE_DIR ultraloc_tools
 )
 
 install(DIRECTORY launch config

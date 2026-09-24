@@ -38,7 +38,7 @@ import sys
 # package's own Python directory is not on it - the sourced setup files normally put it
 # there through a PYTHONPATH hook, and when that hook is present none of this is needed.
 # It is here for the other case, running the script straight out of a checkout, where
-# there is no prefix at all and `sim_ultraloc` is the sibling of `scripts/`.
+# there is no prefix at all and `ultraloc_tools` is the sibling of `scripts/`.
 #
 # Both layouts put the module one directory up from this file: `<pkg>/scripts/` above is
 # the package, and `<prefix>/lib/mrs_ultraloc/` above is `<prefix>/lib`, which is where
@@ -47,7 +47,7 @@ import sys
 _here = os.path.dirname(os.path.abspath(__file__))
 _parent = os.path.dirname(_here)
 for _candidate in [_parent] + sorted(glob.glob(os.path.join(_parent, 'python*'))):
-    if os.path.isdir(os.path.join(_candidate, 'sim_ultraloc')) and _candidate not in sys.path:
+    if os.path.isdir(os.path.join(_candidate, 'ultraloc_tools')) and _candidate not in sys.path:
         sys.path.insert(0, _candidate)
         break
 
@@ -57,11 +57,11 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy  # noqa: E402
 
 from uwb_driver.msg import UwbRange, UwbRangeStamped  # noqa: E402
 
-from sim_ultraloc.sim_parameters import (  # noqa: E402
+from ultraloc_tools.parameters import (  # noqa: E402
     declare_float, declare_int, declare_string, declare_trajectory_parameters,
     read_float, read_int, read_rate, read_string, trajectory_from_parameters,
 )
-from sim_ultraloc.sim_trajectory import SmoothWiggle  # noqa: E402
+from ultraloc_tools.sim_trajectory import SmoothWiggle  # noqa: E402
 
 # The modules report millimetres over the wire and the driver converts to metres, so
 # quantising here too keeps the sim from being smoother than the thing it replaces. A

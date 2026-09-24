@@ -1,11 +1,14 @@
-"""The ROS-side plumbing both simulator nodes share.
+"""The ROS-side plumbing the Python nodes in this package share.
 
-Two things live here: `TRAJECTORY_PARAMETERS` with its declare/read helpers, which is
-one definition of the path parameters so the launch file cannot hand the two nodes two
-different paths; and the declare/read pairs, which exist because ROS parameter types are
-exact.
+Two things live here: the declare/read pairs, which exist because ROS parameter types are
+exact; and `TRAJECTORY_PARAMETERS` with its helpers, which is one definition of the path
+parameters so the launch file cannot hand the two simulator nodes two different paths.
 
-(The import bootstrap that makes `sim_ultraloc` importable from an installed script is
+The declare/read pairs are used by every Python node here, not only the simulators - the
+type rules apply to a visualizer just as much. The trajectory half is the simulators'
+alone.
+
+(The import bootstrap that makes `ultraloc_tools` importable from an installed script is
 deliberately *not* here - it cannot be, since it has to run before this module can be
 imported at all. It is a few lines at the top of each script instead.)
 
@@ -30,6 +33,12 @@ read is the whole fix rather than a workaround for a second problem.
 import math
 
 from rcl_interfaces.msg import ParameterDescriptor
+
+# Not function-local, even though only `trajectory_from_parameters` uses it. sim_trajectory
+# imports nothing from here, so there is no cycle to break, and a function-local import is
+# invisible to a linter - which is how a stale module name in one survived a rename of this
+# package and only showed up as both simulator nodes dying at startup.
+from ultraloc_tools.sim_trajectory import SquareOrbit
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +166,6 @@ def declare_trajectory_parameters(node, prefix='trajectory_'):
 
 def trajectory_from_parameters(node, prefix='trajectory_'):
     """Build the path from what `declare_trajectory_parameters` declared."""
-    from sim_ultraloc.sim_trajectory import SquareOrbit
-
     kwargs = {name: (read_int(node, prefix + name) if name == 'noise_seed'
                      else read_float(node, prefix + name))
               for name in TRAJECTORY_PARAMETERS}

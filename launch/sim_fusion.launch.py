@@ -2,28 +2,51 @@
 
 """Bring up the fusion node with both of its inputs simulated.
 
-  mrs_ultraloc   sim_uvdar_target.py        <ns>/bearing/camera_0/observations
+  mrs_ultraloc   sim_uvdar_target.py        <ns>/uvdar/bearing/<camera>/observations
   mrs_ultraloc   sim_uwb_module.py          <ns>/uwb/distance
   mrs_ultraloc   uwb_uvdar_fusion_node      <ns>/uwb_uvdar_fusion/targets
 
 One target, flying a rounded square roughly 1 to 5 m in front of the camera. No
 camera, no UWB module, and neither `uvdar_core` nor `uwb_driver` is started - the two
-simulators publish on the topics those would publish on, which is where
-`pipeline.launch.py` leaves off. See `sim_uvdar_target.py`'s docstring for why the
-detector is not in the loop.
+simulators publish on the topics those would publish on, spelled exactly as
+`camera_rig.launch.py` spells them, so what the fusion node sees here is what it sees on
+the vehicle and only the producer differs. See `sim_uvdar_target.py`'s docstring for why
+the detector is not in the loop.
 
 Try it::
 
   ros2 launch mrs_ultraloc sim_fusion.launch.py
-  ros2 topic hz /uav/bearing/camera_0/observations      # ~60 Hz
-  ros2 topic hz /uav/uwb/distance                       # ~42 Hz
-  ros2 topic echo  /uav/uwb_uvdar_fusion/targets        # one target, id 0
+  ros2 topic hz /uav/uvdar/bearing/camera/observations   # ~60 Hz
+  ros2 topic hz /uav/uwb/distance                        # ~42 Hz
+  ros2 topic echo  /uav/uwb_uvdar_fusion/targets         # one target, id 0
 
 Different target, different flight::
 
   ros2 launch mrs_ultraloc sim_fusion.launch.py uvdar_id:=3 peer_address:=0x13
   ros2 launch mrs_ultraloc sim_fusion.launch.py centre_x:=8 half_side:=3 period_sec:=40
   ros2 launch mrs_ultraloc sim_fusion.launch.py range_noise_sigma_m:=0.3 trajectory_noise_sigma_m:=0.1
+
+In place of one camera of a real rig
+-----------------------------------
+
+Start the rig and leave one camera looking at nothing, then point this at that slot::
+
+  ros2 launch mrs_ultraloc two_cams.launch.py &
+  ros2 launch mrs_ultraloc sim_fusion.launch.py camera:=camera_front
+
+`camera` re-points *this file's own* fusion node at that slot's bearing topic, so it is a
+second consumer of the same stream rather than a replacement for the rig's node - which is
+what makes the comparison readable: the rig's `camera_back` node keeps publishing nothing
+and warning that it never saw a bearing, while this one fuses the synthetic target. The
+`camera_frame` follows the slot, so the fused positions arrive in the frame the rig would
+use and RViz resolves them against the rig's own static mount.
+
+To exercise the rig's *own* node instead, skip this file's fusion node and run only the
+simulator, which takes the topic as a parameter::
+
+  ros2 run mrs_ultraloc sim_uvdar_target.py --ros-args \\
+      -p topic:=/uav13/uvdar/bearing/camera_front/observations \\
+      -p camera_frame:=uav13/camera_front -p signal_id:=0
 
 Everything is built in one place, on purpose
 --------------------------------------------
@@ -64,10 +87,16 @@ from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-# The relative topic names pipeline.launch.py uses, so the two bringups describe the
-# same wiring and differ only in what produces the messages.
-BEARING_OUTPUT_TOPIC = "bearing/camera_0/observations"
+# The topic names camera_rig.launch.py gives its stages, with the camera slot left open.
+# Imported rather than retyped: these are the names a real rig publishes, and a simulator
+# whose topic has drifted from the producer's tests a wiring that no longer exists. The
+# two formats are the same strings the bringup builds from
+# ultraloc_tools/camera_rig.py's TOPIC_PREFIX and Camera properties.
+BEARING_TOPIC_FORMAT = "uvdar/bearing/{camera}/observations"
 UWB_OUTPUT_TOPIC = "uwb/distance"
+
+# The frame a rig's bearings carry: its namespace plus the slot. Same source as above.
+FRAME_FORMAT = "{uav}/{camera}"
 
 # The namespace config/uwb_uvdar_fusion.yaml's own topic names were written for.
 PINNED_UAV_NAME = "uav"
@@ -100,6 +129,25 @@ def generate_launch_description():
             "uav_name",
             default_value=PINNED_UAV_NAME,
             description="Namespace for all three nodes, so this matches a real bringup.",
+        ),
+
+        # ---- which camera this stands in for --------------------------------
+        #
+        # Names the slot rather than the topic, so that pointing the simulator at a
+        # camera of a running rig is naming the camera - which is one string, from the
+        # same set config/cameras.yaml defines - rather than reconstructing a topic name
+        # by hand and getting the prefix subtly wrong. A wrong prefix here is not an
+        # error: it publishes into a namespace where the fusion node is not listening,
+        # which looks exactly like a target that does not exist.
+        DeclareLaunchArgument(
+            "camera",
+            default_value="camera",
+            description="Camera slot this rig stands in for: names the bearing topic and "
+                        "the frame the bearings are stamped in, both exactly as "
+                        "camera_rig.launch.py would. Pass a real slot name "
+                        "(camera_front, camera_back, ...) to sit in for one camera of a "
+                        "running rig. Not required to be described in cameras.yaml - "
+                        "nothing here reads that file.",
         ),
 
         # ---- which target, on which pair ------------------------------------
@@ -219,8 +267,8 @@ def generate_launch_description():
 
         LogInfo(msg=[
             "[mrs_ultraloc] simulating one target, id '", LaunchConfiguration("uvdar_id"),
-            "' at module '", LaunchConfiguration("peer_address"), "', on /",
-            LaunchConfiguration("uav_name"),
+            "' at module '", LaunchConfiguration("peer_address"), "', standing in for '",
+            LaunchConfiguration("camera"), "' on /", LaunchConfiguration("uav_name"),
             ". Watch /", LaunchConfiguration("uav_name"), "/uwb_uvdar_fusion/targets"],
         ),
     ])
@@ -240,6 +288,11 @@ def launch_nodes(context, *args, **kwargs):
     this_address = value("this_address", lambda text: int(text, 0))
     peer_address = value("peer_address", lambda text: int(text, 0))
     uvdar_id = value("uvdar_id", lambda text: int(text, 0))
+    camera = value("camera")
+    if not camera or '/' in camera:
+        # Empty or slashed, either would build a topic or a frame with a hole in it, and
+        # both read as "the simulator is broken" rather than "the argument was wrong".
+        raise ValueError(f'camera must be a single slot name, got \'{camera}\'')
     namespace = perform_substitutions(context, [LaunchConfiguration("uav_name")])
 
     for name, address in (("this_address", this_address), ("peer_address", peer_address)):
@@ -256,14 +309,24 @@ def launch_nodes(context, *args, **kwargs):
         for parameter, (argument, cast) in TRAJECTORY_ARGUMENTS.items()
     }
 
-    bearing_topic = f'/{namespace}/{BEARING_OUTPUT_TOPIC}'
+    bearing_topic = f'/{namespace}/{BEARING_TOPIC_FORMAT.format(camera=camera)}'
     uwb_topic = f'/{namespace}/{UWB_OUTPUT_TOPIC}'
+    # The frame a rig's bearings carry, so a target fused against these bearings is
+    # published in the frame the rig would publish it in and resolves against the rig's
+    # static mount. Left to the node's own default this file would silently test a frame
+    # name the rig never produces.
+    camera_frame = FRAME_FORMAT.format(uav=namespace, camera=camera)
 
     return [
         Node(
             package="mrs_ultraloc",
             executable="sim_uvdar_target.py",
             name="sim_uvdar_target",
+            # All three nodes stay in the vehicle namespace, as they were before `camera`
+            # existed: only the topic and the frame follow the slot. Two instances of this
+            # file on one machine would therefore collide on node names and double-publish
+            # the same targets topic - use the bare `ros2 run` form below for the second
+            # camera, which is the one that exercises the rig's own fusion node anyway.
             namespace=[namespace],
             output="screen",
             parameters=[{
@@ -271,6 +334,7 @@ def launch_nodes(context, *args, **kwargs):
                 # namespacing itself, because matching the real endpoint's topic is the
                 # whole point.
                 "topic": bearing_topic,
+                "camera_frame": camera_frame,
                 "publish_rate_hz": value("bearing_rate_hz", float),
                 "signal_id": uvdar_id,
                 "bearing_sigma_rad": value("bearing_sigma_rad", float),
@@ -307,9 +371,9 @@ def launch_nodes(context, *args, **kwargs):
                 {
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
                     # Recomputed rather than read from the file, exactly as
-                    # pipeline.launch.py does and for the same reason: the file pins both
-                    # to /uav, and its bearing topic carries an uvdar/ segment the real
-                    # endpoint - and so this sim - does not publish under.
+                    # camera_rig.launch.py does and for the same reason: the file pins
+                    # both to one namespace, which is right for the default and wrong for
+                    # any other uav_name or camera.
                     "bearing_topic": bearing_topic,
                     "uwb_topic": uwb_topic,
                     # The one pair this rig has, from the same two integers the

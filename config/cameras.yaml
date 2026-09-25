@@ -1,0 +1,240 @@
+# The camera rig of this vehicle: which cameras it wears, where each one's per-vehicle
+# values come from, and where each is mounted.
+#
+# Read by ultraloc_tools/camera_rig.py, which resolves the slots a launch file asks for
+# into the concrete serials, exposures, file paths, topics and TF frames that
+# `launch/camera_rig.launch.py` then starts. It is the only place a camera is described;
+# the launch files only choose how many of these to use.
+#
+# What a camera entry holds is deliberately small: the two environment variables to read,
+# and the mount. Calibration and mask file names are not listed per camera - they follow
+# the patterns under `paths`, in which only the serial changes. See
+# `ultraloc_tools/camera_rig.py` for the resolution rules and for what a wrong pattern
+# costs.
+#
+# ---------------------------------------------------------------------------
+# which rigs exist
+# ---------------------------------------------------------------------------
+#
+# `one_cam`, `two_cams` and `three_cams.launch.py` request these slots, in this order:
+#
+#   1 camera   camera
+#   2 cameras  camera_front, camera_back
+#   3 cameras  camera_left, camera_right, camera_back
+#
+# The slot name is not decoration - it is the uvdar input name and the middle of every
+# topic and TF frame for that camera, so `/uav13/uvdar/bearing/camera_left/observations`
+# and the frame `uav13/camera_left` both come from the key below. Renaming a slot
+# renames everything derived from it, which is the point: a topic name and a TF frame
+# that disagree about which camera they belong to is a silent failure, and this is the
+# one name to change.
+#
+# Every described camera is *available*; describing five and launching two is normal, and
+# nothing about the unused entries is evaluated at launch. Only the slots a launch file
+# asks for get their environment variables read and their files checked.
+#
+# ---------------------------------------------------------------------------
+# the environment
+# ---------------------------------------------------------------------------
+#
+# Serials and exposures live in the shell, not here, so this file can be the same on
+# every vehicle while the values in it differ. Put this in ~/.bashrc:
+#
+#   # the UWB module on this computer - see the warning below about its shape
+#   export UWB_SERIAL=00AA11BB22CC
+#
+#   # one serial per camera, exactly as `ros2 run bluefox2 bluefox2_list_cameras` prints
+#   # it, and one exposure in microseconds per camera. Only the variables the launched rig
+#   # asks for are read, so exporting all five on a one-camera vehicle is harmless.
+#   export CAMERA_MAIN=25001879     export EXPOSE_US_MAIN=2000
+#   export CAMERA_FRONT=25001879    export EXPOSE_US_FRONT=2000
+#   export CAMERA_BACK=25001954     export EXPOSE_US_BACK=3000
+#   export CAMERA_LEFT=25001879     export EXPOSE_US_LEFT=2000
+#   export CAMERA_RIGHT=25001954    export EXPOSE_US_RIGHT=2000
+#
+# Two slots must not name the same serial: that is one device asked for by two camera
+# nodes, and the launch refuses rather than letting the second camera fail to open it.
+# The three names above are distinct per rig, but `two_cams` (front+back) and `three_cams`
+# (left+right+back) need a third physical camera and so a third serial for `camera_back`
+# alongside left and right - which also needs its own calibration file, see `paths`.
+#
+#   # optional; defaults to $UAV_NAME with the leading "uav" removed, so UAV_NAME=uav13
+#   # already means MRS_ID=13 for the mask file names below
+#   # export MRS_ID=13
+#
+# Two notes on the serial, both learned the expensive way:
+#
+#   * For the UWB module, a shape like 206133814E31 aborts the driver. Launch writes
+#     the parameter through PyYAML, which leaves such a token unquoted because YAML 1.1
+#     does not resolve it as a number (its exponent needs a sign); rclcpp's yaml-cpp is
+#     more liberal and reads it as a float, and setting that on a string parameter is
+#     fatal:
+#
+#         what():  parameter 'usb_serial' has invalid type: ... parameter {usb_serial}
+#                  is of type {string}, setting it to {double} is not allowed.
+#         process has died [exit code -6]
+#
+#     A purely numeric serial (25001879) is quoted by PyYAML and is fine, as is
+#     anything whose letters come before the digits (00AA11BB22CC). So the shape to
+#     avoid is digits, then E, then digits.
+#
+#     This is not checked or worked around here. The camera side takes the same token
+#     through the same PyYAML path and has been observed to survive it - bluefox2 with
+#     device:=206133814E31 reports the serial back intact as a string ("Requested device
+#     with serial 206133814E31 not found") rather than aborting - but no reason for the
+#     difference has been established, so it is an observation, not a guarantee. Nothing
+#     in this package reads a serial as a number: a serial used in a file *name* is
+#     inert, and every serial this package passes on is passed as a string.
+#   * `aec` is forced false by the launch files, so `EXPOSE_US_*` is the exposure and
+#     nothing else is adjusting it. That is what the uvdar_core rig does
+#     (two_bluefox.launch.py:27) and what makes a per-camera exposure mean anything.
+#
+# A missing camera serial stops the launch and names the variable. A missing exposure
+# warns and uses the driver's default, because a wrong exposure is visible in the image
+# and a missing serial is not visible at all.
+
+# ---------------------------------------------------------------------------
+# where each camera's files are
+# ---------------------------------------------------------------------------
+
+paths:
+  # Placeholders: {serial} this camera's serial, {mrs_id} the vehicle number, {slot} the
+  # camera key below, {uvdar_config} share/uvdar_core/config of the sourced workspace.
+  # Relative results resolve against this file's directory; absolute ones are used as
+  # they are written.
+  #
+  # The default reaches into uvdar_core because that package ships real OCam
+  # calibrations for the Bluefox - `camera/bluefox_ocam_calib/bf_uv_<serial>.yaml`, the
+  # serial-suffixed successors of its hand-named `bf_left.yaml`/`bf_right.yaml` - so a
+  # fresh checkout with CAMERA_FRONT=25001879 finds a calibration on the first try
+  # instead of failing on a file nobody has copied here yet. Replace both lines with
+  # paths relative to this directory (`calib/bf_uv_{serial}.yaml`) once this vehicle's
+  # own cameras are calibrated; `calibrator.launch.py` in uvdar_core produces them.
+  #
+  # A missing calibration stops the launch, naming the slot, the serial and the path it
+  # tried, rather than letting the bearing node abort on a message about a lens model.
+  calib_file: '{uvdar_config}/camera/bluefox_ocam_calib/bf_uv_{serial}.yaml'
+
+  # Masks are per-vehicle work - they exclude the drone's own parts from a camera's view
+  # - so they are named by vehicle and camera, and they live beside this file. Nothing
+  # ships with them and nothing here invents them: `mask/` is where they go when they are
+  # made.
+  #
+  # A missing mask is a warning and no mask, not an error. Making one is a separate
+  # activity from mounting a camera, and the first flight after a re-mount should be
+  # possible; `detector_node.cpp:47-49` throws on a mask path that does not exist, so
+  # warning and disabling is what lets that be true.
+  mask_file: 'mask/{mrs_id}_{serial}.png'
+
+uwb:
+  # One module per vehicle however many cameras it wears, which is why this is not under
+  # `cameras`. Unset is fine and means "the driver's own config file decides", matching
+  # uwb_driver.launch.py's behaviour.
+  #
+  # The 12 hex digits `udevadm info -q property -n /dev/ttyACM0 | grep ID_SERIAL_SHORT`
+  # prints. A typo reads exactly like an absent module - the driver logs only the serial
+  # it was given and never enumerates what it can see - so when a module seems missing,
+  # unset this and let the driver log what it finds.
+  serial_env: UWB_SERIAL
+
+# ---------------------------------------------------------------------------
+# the cameras
+# ---------------------------------------------------------------------------
+#
+# mount is x, y, z in metres and roll, pitch, yaw in radians, both in the *body* frame
+# (x forward, y left, z up), describing where the camera sits and which way it looks.
+#
+# roll = -1.57079632679 (-90 deg) in every default below is the body->optical
+# convention, not a bracket: it is what makes the frame an optical frame (+x along the
+# optical axis, +y left, +z down) instead of a body frame, and it is what uvdar_core's
+# own two-camera mount uses. The mount's child frame here is a *camera* frame named
+# after the slot, so this roll has to be present for the bearings to come out level -
+# "fixing" it to 0.0 tilts every target 90 degrees.
+#
+# THE NUMBERS BELOW ARE PLACEHOLDERS. They are plausible for a small quad and they are
+# not this vehicle. Measure them, or start from uvdar_core's two_bluefox.launch.py:42-71,
+# which carries a measured left/right pair. A wrong mount is invisible in the topics -
+# everything flows, ids fuse, ranges agree - and shows up only as targets at the wrong
+# angle, which is why the static-hold check in the README is the one to run after
+# touching these.
+
+cameras:
+
+  # ---- the single-camera rig -------------------------------------------------
+  # Straight ahead, no yaw. The camera is simply `camera`: with one of them there is
+  # nothing to distinguish it from, and a name like camera_front would be a promise the
+  # rig cannot keep if it is later turned to the side.
+  camera:
+    serial_env: CAMERA_MAIN
+    exposure_env: EXPOSE_US_MAIN
+    mount:
+      x: 0.03
+      y: 0.00
+      z: 0.06
+      roll: -1.57079632679
+      pitch: 0.0
+      yaw: 0.0
+
+  # ---- the two-camera rig: forward and backward ------------------------------
+  # Front-and-back rather than left-and-right, because the two things a two-camera
+  # UVDAR rig is for on one vehicle are seeing the target ahead and knowing it is not
+  # behind. A left/right stereo pair needs the mount separation to be measured to the
+  # centimetre and this file is not where that measurement belongs.
+  camera_front:
+    serial_env: CAMERA_FRONT
+    exposure_env: EXPOSE_US_FRONT
+    mount:
+      x: 0.03
+      y: 0.00
+      z: 0.06
+      roll: -1.57079632679
+      pitch: 0.0
+      yaw: 0.0
+
+  # yaw = pi: looking aft. The frame follows the camera, so a target behind the vehicle
+  # has a positive x in this frame - the mount is the only place the turnaround lives.
+  camera_back:
+    serial_env: CAMERA_BACK
+    exposure_env: EXPOSE_US_BACK
+    mount:
+      x: -0.03
+      y: 0.00
+      z: 0.06
+      roll: -1.57079632679
+      pitch: 0.0
+      yaw: 3.14159265359
+
+  # ---- the three-camera rig: left, right, aft --------------------------------
+  # 10 cm either side of the centre line with 20 degrees of toe-in, so both see straight
+  # ahead at a few metres and neither covers the nose. The y and yaw values are taken in
+  # magnitude from uvdar_core's example mount (two_bluefox.launch.py:47-51) - 0.10 m and
+  # 0.3490658504 rad - but NOT in sign pattern: that example's second camera is at
+  # y=-0.10, yaw=-2.792526803, i.e. -160 degrees, which is an aft-looking camera. It is a
+  # fore/aft pair, not a stereo pair, whatever its `left`/`right` names suggest. A true
+  # left/right pair mirrors the yaw, so `camera_left` is -20 degrees and `camera_right`
+  # is +20.
+  #
+  # Keep the left-is-left convention if these are re-measured: the topic names and TF
+  # frames carry the word, and a `camera_left` mounted on the right is a wrong answer
+  # that no tool will report.
+  camera_left:
+    serial_env: CAMERA_LEFT
+    exposure_env: EXPOSE_US_LEFT
+    mount:
+      x: 0.03
+      y: 0.10
+      z: 0.06
+      roll: -1.57079632679
+      pitch: 0.0
+      yaw: -0.3490658504
+
+  camera_right:
+    serial_env: CAMERA_RIGHT
+    exposure_env: EXPOSE_US_RIGHT
+    mount:
+      x: 0.03
+      y: -0.10
+      z: 0.06
+      roll: -1.57079632679
+      pitch: 0.0
+      yaw: 0.3490658504

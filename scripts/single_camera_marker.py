@@ -127,10 +127,16 @@ PALETTE = (
     (0.85, 0.85, 0.50),
 )
 
-# Used until the first input message names one. This is what the UVDAR bearing endpoint
-# writes into header.frame_id and what the fusion node copies through unchanged, so it is
-# not a guess for either the real pipeline or the simulator - but it is still only the
-# fallback, because a frame that RViz cannot resolve renders nothing.
+# Used until the first input message names one. The frame is taken from the input whenever
+# the `frame_id` parameter is empty - which is the default and the setting that needs no
+# knowledge of the rig - so this only has to be a name RViz can resolve in the seconds
+# before the first message, and it renders nothing until then either way.
+#
+# It is uvdar_core's own default-bearing-config frame, which is what a pipeline started
+# from that file unmodified stamps its bearings with. The multi-camera rig
+# (one_cam/two_cams/three_cams.launch.py) stamps `<uav>/<slot>` instead, so on that rig
+# this value is simply never correct and never used. Kept rather than emptied because a
+# node with no frame at all cannot build a marker header.
 FALLBACK_FRAME = 'camera_0_optical_frame'
 
 # RViz ignores the alpha of per-point colours - stated in Marker.msg, "NOTE: alpha is not

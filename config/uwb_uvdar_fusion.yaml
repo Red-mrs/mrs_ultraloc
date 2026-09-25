@@ -14,6 +14,14 @@
     # themselves independently of this node: the bearing endpoint publishes under
     # the UAV namespace configured in uvdar_core's config file, and the UWB driver
     # publishes relative to whatever container it runs in.
+    #
+    # These two are what a node started by camera_rig.launch.py is given anyway -
+    # the bringup sets both per camera, since one file cannot state N bearing
+    # topics - so they matter only when this node is launched on its own. The
+    # "camera_0" below is a name from before the rig slots existed; a rig's slots
+    # are camera, camera_front, camera_back, camera_left, camera_right. Pointing
+    # this at a name nothing publishes is not an error - the node starts, and the
+    # only symptom is that no bearing is ever fresh.
     bearing_topic: "/uav/uvdar/bearing/camera_0/observations"
     uwb_topic: "/uav/uwb/distance"
 

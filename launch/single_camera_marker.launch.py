@@ -99,16 +99,43 @@ def generate_launch_description():
             default_value=EnvironmentVariable("USE_SIM_TIME", default_value="false"),
             description="Follow /clock, to match the node being visualised.",
         ),
+        # Relative by default, so it resolves against uav_name above and lands on the one
+        # topic a single-camera rig publishes. Named as an argument rather than fixed here
+        # because a multi-camera rig publishes one target stream per camera
+        # (one_cam/two_cams/three_cams.launch.py), and which one to look at is a question
+        # this file cannot answer. An absolute name works too.
+        #
+        # One instance per camera means a second output_topic as well, since the shipped
+        # rviz config listens on /markers only - see output_topic's note on the shared
+        # topic. A second Marker display pointed at the second output topic is the whole
+        # extra step.
+        DeclareLaunchArgument(
+            "input_topic",
+            default_value="uwb_uvdar_fusion/targets",
+            description="Which fusion output to visualise. For a camera slot pass e.g. "
+                        "input_topic:=camera_left/uwb_uvdar_fusion/targets.",
+        ),
+
+        # Only needed for a second instance: two nodes of the same name in the same
+        # namespace work but are indistinguishable in `ros2 node list` and in a TF or
+        # topic tool's output, which is a poor way to find out which camera you are
+        # looking at.
+        DeclareLaunchArgument(
+            "node_name",
+            default_value="single_camera_marker",
+            description="Name of the marker node. Change it when visualising two cameras "
+                        "at once, so the two instances can be told apart.",
+        ),
 
         Node(
             package="mrs_ultraloc",
             executable="single_camera_marker.py",
-            name="single_camera_marker",
+            name=LaunchConfiguration("node_name"),
             # The node's namespace scopes only what it reads; see output_topic.
             namespace=[LaunchConfiguration("uav_name")],
             output="screen",
             parameters=[{
-                "input_topic": "uwb_uvdar_fusion/targets",
+                "input_topic": LaunchConfiguration("input_topic"),
                 "output_topic": LaunchConfiguration("output_topic"),
                 # Coerced, because a launch argument is text and the node's read helpers
                 # reject a string where a number is wanted rather than guessing.

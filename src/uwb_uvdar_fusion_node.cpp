@@ -129,8 +129,14 @@ void UwbUvdarFusionNode::loadParams()
   /* Both inputs are given as absolute defaults, because the producers live under
    * namespaces of their own (/uav/uvdar/..., /uav/uwb/distance) and a relative
    * name would silently resolve against whichever namespace this node happens to
-   * be placed in. */
-  bearing_topic_ = declare_parameter<std::string>("bearing_topic", "/uav/uvdar/bearing/camera_0/observations");
+   * be placed in.
+   *
+   * One bearing topic for any rig: uvdar_core's bearing node has one publisher, on
+   * bearing.output_topic, and transforms every camera it is configured with into
+   * bearing.output_frame before publishing. So `camera_0`-style per-camera names are
+   * not topics that exist - subscribing to one is a stream that never arrives, which
+   * this node reports and does not refuse. */
+  bearing_topic_ = declare_parameter<std::string>("bearing_topic", "/uav/uvdar/bearing/observations");
   uwb_topic_     = declare_parameter<std::string>("uwb_topic", "/uav/uwb/distance");
   output_topic_  = declare_parameter<std::string>("output_topic", "uwb_uvdar_fusion/targets");
 
@@ -274,10 +280,16 @@ void UwbUvdarFusionNode::bearingCallback(const uvdar_core::msg::BearingObservati
 
   const double stamp = toSec(msg->header.stamp);
 
-  /* Two observations of one id in one batch should not happen - the tracker
-   * resolves one track per decoded signal - but averaging guards against a
-   * producer that puts, say, two cameras on one topic. Averaging unit vectors
-   * rather than angles keeps the result a direction.
+  /* Observations are averaged across one id WITHIN one batch: the mean of unit
+   * vectors rather than of angles, which keeps the result a direction. Nothing merges
+   * batches - `bearings_[id]` below takes the newest sample whole - so with a
+   * multi-camera rig, where each camera's ray arrives in its own batch, the direction
+   * alternates between the cameras at the tracker rate rather than settling on a mean.
+   * See the class comment for why that is left alone rather than smoothed here.
+   *
+   * The in-batch average is still the right rule for what a batch can legitimately
+   * contain, and the message names no camera, so this node cannot tell a per-camera
+   * producer from one that merged.
    *
    * The accumulator carries its own zeroing, because operator[] on a map of
    * Eigen matrices default-constructs the value, which for Eigen leaves the
@@ -479,8 +491,9 @@ void UwbUvdarFusionNode::publishFusion()
       target.range_stamp       = toBuiltinTime(range.stamp);
       fromMatrix(position_covariance, target.covariance.data());
 
-      /* One frame per message. One bearing topic means one camera means one frame,
-       * so a second distinct frame_id means the input was remapped mid-flight. */
+      /* One frame per message. The bearing endpoint stamps every camera it publishes
+       * with its own output_frame, so a second distinct frame_id here means the input
+       * was remapped mid-flight, or that two endpoints were pointed at one topic. */
       if (output.header.frame_id.empty()) {
         output.header.frame_id = bearing.frame_id;
       } else if (output.header.frame_id != bearing.frame_id) {

@@ -17,10 +17,14 @@ is self-consistent no matter how the two publish rates fall relative to each oth
 import math
 import random
 
-# The frame the bearing endpoint publishes in, and the frame a real Bluefox optical
-# frame is named after. Names matter here only so a wrong frame_id in the fusion's
-# output is obvious rather than plausible.
-OPTICAL_FRAME = 'camera_0_optical_frame'
+# The frame the bearing endpoint publishes in, and so the frame the fusion's positions
+# land in. It is the *body* frame, not a camera frame: uvdar_core's bearing node rotates
+# every camera's rays into `bearing.output_frame`, which its configs state as
+# $UAV_NAME/fcu, and the trajectory below is written in that convention already (+x
+# forward, +y left, +z up). Matching the name to the convention is what makes a bare
+# `ros2 run` of the simulator publish bearings a real rig could have produced; a wrong
+# frame_id in the fusion's output then reads as unresolvable rather than as plausible.
+BODY_FRAME = 'uav/fcu'
 
 
 def unit_bearing(position):
@@ -97,9 +101,12 @@ class SmoothWiggle:
 class SquareOrbit:
     """A target flying a rounded square in the x-z plane of an optical frame.
 
-    Frame follows REP 103 for the optical frame the bearing endpoint publishes in:
-    +x forward along the optical axis, +y left, +z up. So `centre_x` is depth, which
-    is the axis the range lives on, and the lateral offset is `lateral_y`.
+    Frame follows REP 103 for the body frame the bearing endpoint publishes in -
+    `bearing.output_frame`, `<uav>/fcu`: +x forward, +y left, +z up. So `centre_x` is
+    depth, which is the axis the range lives on, and the lateral offset is `lateral_y`.
+    The endpoint rotates a camera's optical frame (+z down) into this one before
+    publishing, so the sim writing its path in body-frame convention here is what makes
+    its bearings the kind a real rig would have published.
 
     The path is a square of half-side `half_side` centred at (`centre_x`, `lateral_y`,
     0), with the corners rounded over `corner_radius`. Rounding is not cosmetic:

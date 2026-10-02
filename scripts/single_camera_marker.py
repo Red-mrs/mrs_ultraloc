@@ -6,12 +6,15 @@ publishes one `visualization_msgs/msg/MarkerArray` containing, per target:
 
   * an ellipsoid for the position covariance, rotated into the covariance's own frame;
   * a sphere at the fused position;
-  * a faint line from the camera origin to it, which is the bearing scaled by the range;
+  * a faint line from the origin to it, which is the bearing scaled by the range;
   * its recorded history as a fading trail, so the flight path is visible;
   * a label with the target's id and distance.
 
-Plus, at the origin, the camera: three axis arrows in the frame the bearings are
-published in, and optionally a view frustum.
+Plus, at the origin, three axis arrows in the frame the bearings are published in, and
+optionally a nominal view frustum. That frame is this node's *input* frame, which for
+uvdar_core's shipped configs is `bearing.output_frame` - `<uav>/fcu`, the vehicle body
+frame, because the bearing endpoint rotates every camera into it before publishing. So
+the arrows are the vehicle's axes, not one camera's; see `_camera_markers`.
 
     ros2 run mrs_ultraloc single_camera_marker.py --ros-args \
         -p input_topic:=/uav/uwb_uvdar_fusion/targets
@@ -132,12 +135,11 @@ PALETTE = (
 # knowledge of the rig - so this only has to be a name RViz can resolve in the seconds
 # before the first message, and it renders nothing until then either way.
 #
-# It is uvdar_core's own default-bearing-config frame, which is what a pipeline started
-# from that file unmodified stamps its bearings with. The multi-camera rig
-# (one_cam/two_cams/three_cams.launch.py) stamps `<uav>/<slot>` instead, so on that rig
-# this value is simply never correct and never used. Kept rather than emptied because a
-# node with no frame at all cannot build a marker header.
-FALLBACK_FRAME = 'camera_0_optical_frame'
+# It is the frame uvdar_core's bearing configs state as `output_frame` for the default
+# namespace - the endpoint stamps every camera's observations with that one frame, so
+# there is no per-camera variant to guess at. Kept rather than emptied because a node
+# with no frame at all cannot build a marker header.
+FALLBACK_FRAME = 'uav/fcu'
 
 # RViz ignores the alpha of per-point colours - stated in Marker.msg, "NOTE: alpha is not
 # yet used" - so the trail's fade is done in brightness instead. Against RViz's default
@@ -404,15 +406,23 @@ class SingleCameraMarker(Node):
 
         self.publisher.publish(MarkerArray(markers=markers))
 
-    # ---- camera ------------------------------------------------------------
+    # ---- the frame the targets are drawn in --------------------------------
 
     def _camera_markers(self, stamp):
         """Three axis arrows at the origin, plus a frustum if one was asked for.
 
-        The frame is the *optical* frame - +x along the optical axis, +y left, +z up -
-        not a body frame, so the arrows are worth having for that reason alone: a target
-        at negative z is below the camera, and with the blue arrow pointing up there is no
-        way to read it the other way round.
+        The frame is whatever the inputs carry, which for uvdar_core's shipped configs is
+        `bearing.output_frame` = `<uav>/fcu` - a body frame, +x forward, +y left, +z up
+        (REP 103). Both conventions put +x along the direction a target is measured down
+        and +z up, so the arrows read the same either way and the sign of z is still
+        legible: a target at negative z is below the vehicle, and with the blue arrow
+        pointing up there is no way to read it the other round.
+
+        The frustum is therefore a *nominal* one - the shape a +x-looking lens would have -
+        drawn to answer "was that target even in view". The frame it is drawn in is not a
+        camera's: the endpoint rotates every camera into `output_frame` before publishing,
+        so no single camera owns this frame. `frustum_hfov_deg` and `frustum_vfov_deg` are
+        the values to set from the lens if you want it near the truth.
         """
         length = read_float(self, 'camera_axis_length_m')
         radius = read_float(self, 'camera_axis_radius_m')

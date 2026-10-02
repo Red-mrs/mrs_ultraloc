@@ -4,8 +4,9 @@ Design notes that matter when changing these:
 
 * Every test uses its own UWB:UVDAR pair from test/config/test_params.yaml and
   filters published targets by id. That makes the tests independent of each
-  other and of ordering, and immune to a real fusion node running on the same
-  machine (which would publish on different topics anyway).
+  other and of ordering. Independence from a real fusion node on the same
+  machine comes from the topics instead: test_params.yaml pins all three to
+  /test_fusion/*, which a real bringup never uses.
 * Inputs are published continuously rather than once. The node keeps the newest
   bearing and range and gates on their age, so a single message would let the
   test's assertions depend on how long the test took to get around to checking.
@@ -37,8 +38,10 @@ RANGE_SIGMA_M = 0.30
 MIN_RANGE_M = 0.3
 MAX_RANGE_M = 50.0
 
-# Test frames are named so a wrong or missing frame_id is obvious in a failure.
-FRAME = "test_camera_optical_frame"
+# Test frames are named so a wrong or missing frame_id is obvious in a failure. Named
+# as a body frame because that is what a real endpoint's bearings carry - the shipped
+# uvdar_core configs set bearing.output_frame to $UAV_NAME/fcu.
+FRAME = "test_fusion_fcu"
 
 # position = bearing * range is a scaling of a unit vector, so any disagreement
 # with the expectation is a bug rather than accumulated float error. Kept far
@@ -63,6 +66,16 @@ def unit_bearing(azimuth_rad, elevation_rad):
     y = math.cos(elevation_rad) * math.sin(azimuth_rad)
     z = math.sin(elevation_rad)
     return (x, y, z)
+
+
+def mean_direction(bearings):
+    """The normalised sum of several unit directions - how the node combines a blinker
+    two cameras can see. Recomputed here rather than written as a literal so the test
+    names the operation (average of unit vectors) instead of restating its result.
+    """
+    total = tuple(sum(bearing[axis] for bearing in bearings) for axis in range(3))
+    norm = math.sqrt(sum(component ** 2 for component in total))
+    return tuple(component / norm for component in total)
 
 
 def tangent_covariance(bearing, sigma_rad):

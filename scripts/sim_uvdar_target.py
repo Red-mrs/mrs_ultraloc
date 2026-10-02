@@ -63,7 +63,7 @@ from ultraloc_tools.parameters import (  # noqa: E402
     declare_float, declare_int, declare_string, declare_trajectory_parameters,
     read_float, read_int, read_rate, read_string, trajectory_from_parameters,
 )
-from ultraloc_tools.sim_trajectory import OPTICAL_FRAME, flatten, tangent_covariance  # noqa: E402
+from ultraloc_tools.sim_trajectory import BODY_FRAME, flatten, tangent_covariance  # noqa: E402
 
 
 class SimUvdarTarget(Node):
@@ -72,7 +72,14 @@ class SimUvdarTarget(Node):
     def __init__(self):
         super().__init__('sim_uvdar_target')
 
-        declare_string(self, 'topic', '/uav/bearing/camera_0/observations')
+        # The endpoint's one topic for a rig of any size - `bearing.output_topic` in
+        # uvdar_core's config, which every camera it is configured with shares.
+        # Per-camera names like bearing/camera_0/... are not topics that exist, so a
+        # default pointing at one would leave a bare `ros2 run` publishing where nothing
+        # listens. Note the endpoint publishes one message per camera on that topic
+        # rather than combining cameras into one message, which is why this node's
+        # one-target-per-message shape is the normal case rather than a simplification.
+        declare_string(self, 'topic', '/uav/uvdar/bearing/observations')
         declare_float(self, 'publish_rate_hz', 60.0)
         # The id the tracker would decode from this vehicle's blinker sequence, i.e. its
         # index into `tracking.sequences`. This is the UVDAR half of the fusion's
@@ -82,7 +89,9 @@ class SimUvdarTarget(Node):
         # Only echoes back what the fusion ignores; carried because the real endpoint
         # fills it and a consumer that logs it would otherwise see 0 for everything.
         declare_int(self, 'track_id', 1)
-        declare_string(self, 'camera_frame', OPTICAL_FRAME)
+        # The endpoint stamps every camera's observations with its own `output_frame`,
+        # so this is the body frame rather than a per-camera optical one.
+        declare_string(self, 'camera_frame', BODY_FRAME)
         # Angular 1-sigma of the bearing, spread over the tangent plane. Filled into the
         # message rather than left empty: an all-zero covariance reads to the fusion as
         # "no covariance", and it then substitutes its own bearing_sigma_rad, so a sim

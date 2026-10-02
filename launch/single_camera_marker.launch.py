@@ -22,8 +22,9 @@ a router, and without one everything starts, every topic exists, and nothing arr
 What you should see
 -------------------
 
-A grid in the camera's own optical frame (+x forward along the optical axis, +y left, +z
-up), three short axis arrows at the origin, and one target orbiting a rounded square 1.1
+A grid in the frame the data is in (+x forward, +y left, +z up - for the shipped configs
+that is the vehicle's body frame, `<uav>/fcu`), three short axis arrows at the origin, and
+one target orbiting a rounded square 1.1
 to 5.3 m out, leaving a trail that fades towards its oldest end. The target is the
 fusion's fused position, not the simulated ground truth - the two agreeing to the rounding
 is the point of running them together.
@@ -34,8 +35,9 @@ draw a covariance: a trail that wanders outside the 1-sigma shell means the repo
 uncertainty is too small.
 
 rviz:=false starts only the node, for attaching to an RViz you already have open - in
-which case set the fixed frame to `camera_0_optical_frame` and add one Marker display on
-`/markers`.
+which case set the fixed frame to the frame the data is in - `<uav_name>/fcu`, the
+bearing endpoint's `output_frame`, which this node adopts from the first message it
+receives - and add one Marker display on `/markers`.
 """
 
 from launch import LaunchDescription
@@ -99,21 +101,18 @@ def generate_launch_description():
             default_value=EnvironmentVariable("USE_SIM_TIME", default_value="false"),
             description="Follow /clock, to match the node being visualised.",
         ),
-        # Relative by default, so it resolves against uav_name above and lands on the one
-        # topic a single-camera rig publishes. Named as an argument rather than fixed here
-        # because a multi-camera rig publishes one target stream per camera
-        # (one_cam/two_cams/three_cams.launch.py), and which one to look at is a question
-        # this file cannot answer. An absolute name works too.
-        #
-        # One instance per camera means a second output_topic as well, since the shipped
-        # rviz config listens on /markers only - see output_topic's note on the shared
-        # topic. A second Marker display pointed at the second output topic is the whole
-        # extra step.
+        # Relative by default, so it resolves against uav_name above and lands on the
+        # fusion node's output. There is one target topic per vehicle and one per camera
+        # is not a thing: the bearing endpoint publishes a rig of any size on one topic in
+        # one frame, so a rig of three cameras is still one target stream here. (One
+        # topic does not mean the cameras' sightings are combined - see README.md.) An
+        # absolute name works too, e.g. to visualise another vehicle.
         DeclareLaunchArgument(
             "input_topic",
             default_value="uwb_uvdar_fusion/targets",
-            description="Which fusion output to visualise. For a camera slot pass e.g. "
-                        "input_topic:=camera_left/uwb_uvdar_fusion/targets.",
+            description="Which fusion output to visualise, absolute or relative to "
+                        "uav_name. One stream per vehicle whatever the size of its rig, so "
+                        "this names a vehicle, not a camera.",
         ),
 
         # Only needed for a second instance: two nodes of the same name in the same

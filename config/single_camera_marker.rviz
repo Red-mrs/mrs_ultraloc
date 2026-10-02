@@ -78,10 +78,16 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 30; 30; 36
-    # The frame the UVDAR bearing endpoint stamps its messages with and which the fusion
-    # node copies through unchanged. RViz has to resolve the fixed frame, and there is no
-    # TF tree to transform into here, so the fixed frame has to be the data's own frame.
-    Fixed Frame: camera_0_optical_frame
+    # The frame the UVDAR bearing endpoint stamps its messages with - its
+    # `output_frame`, which uvdar_core's configs state as $UAV_NAME/fcu - and which the
+    # fusion node copies through unchanged. RViz has to resolve the fixed frame, and with
+    # no state estimator running there is no TF tree to transform into here, so the fixed
+    # frame has to be the data's own frame.
+    #
+    # It says `uav` because that is this rig's default namespace. Start either node with
+    # uav_name:=uav13 and the data arrives in uav13/fcu, which RViz will refuse to
+    # resolve - change this line, or run the state estimator so the TF exists.
+    Fixed Frame: uav/fcu
     Frame Rate: 30
   Name: root
   Tools:
@@ -103,9 +109,10 @@ Visualization Manager:
         Z: 0
       Name: Current View
       Near Clip Distance: 0.01
-      # Yaw pi looks back along -x, so the optical axis +x points into the screen and the
-      # target's square path - which lives in the x-z plane - is seen face-on. RViz's
-      # default view looks down -z, which would show the entire flight as a single line.
+      # Yaw pi looks back along -x, so the frame's +x (forward, in <uav>/fcu) points into
+      # the screen and the target's square path - which lives in the x-z plane - is seen
+      # face-on. RViz's default view looks down -z, which would show the entire flight as
+      # a single line.
       Pitch: 0.3
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)

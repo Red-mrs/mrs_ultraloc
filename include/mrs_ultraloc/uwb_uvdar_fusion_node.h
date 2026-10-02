@@ -20,21 +20,43 @@ namespace mrs_ultraloc
 {
 
 /*
- * Combines a UVDAR bearing with a UWB range for one camera and publishes the
- * resulting 3D position of each other vehicle.
+ * Combines a UVDAR bearing with a UWB range and publishes the resulting 3D position of
+ * each other vehicle.
  *
  * The bearing arrives already expressed in a robot-fixed frame
  * (BearingObservationArrayStamped.header.frame_id), so no camera calibration is
- * involved here: the position of the target is simply that bearing scaled by the
- * UWB range.
+ * involved here: the position of the target is simply that bearing scaled by the UWB
+ * range.
  *
- * One target is one UWB address, tied to the UVDAR signal id the same vehicle
- * blinks. Both sides of that pairing come from the `uwb_uvdar_id_pairs`
- * parameter, so nothing about the addressing scheme is compiled in.
+ * One target is one UWB address, tied to the UVDAR signal id the same vehicle blinks.
+ * Both sides of that pairing come from the `uwb_uvdar_id_pairs` parameter, so nothing
+ * about the addressing scheme is compiled in.
  *
- * The fused position is published in the frame the bearing was stamped with. For
- * a camera that is its own optical frame; composing several cameras needs a
- * mounting transform, which this node deliberately does not do.
+ * Several cameras, one topic
+ * --------------------------
+ *
+ * A rig of one, two or three cameras needs no change here, because uvdar_core's
+ * bearing node transforms each camera's ray into `bearing.output_frame` and publishes
+ * every one of its inputs on the single `bearing.output_topic`, stamped with that one
+ * frame. So this node subscribes to one bearing topic whatever the size of the rig, and
+ * the frame it publishes in is the frame that stream carries - the vehicle's body frame
+ * for the shipped configs.
+ *
+ * One topic, though, is not one merged observation. `onTrackerOutput` builds and
+ * publishes one message per tracker callback, and there is one callback per camera
+ * input, so a blinker two cameras can see arrives as two *separate* batches whose
+ * relative order nothing fixes. Per batch, bearingCallback averages the observations of
+ * one id within that batch - which is what a producer that did merge cameras would
+ * need, and is tested - but across batches the newest sample replaces the previous one
+ * outright. With a multi-camera config that makes the reported direction alternate
+ * between the cameras at the tracker rate, at the full amplitude of their disagreement.
+ *
+ * Why it is left that way rather than smoothed: `BearingObservation` names no camera,
+ * so nothing here can tell which of two sightings is the better one, and the ray's
+ * `origin` (the camera's own position, which the endpoint fills in) is not consulted -
+ * intersecting two offset rays to triangulate is a decision about the rig, not a
+ * transform, and it belongs to whatever stage owns the camera geometry. The static-hold
+ * check in README.md is how to tell a wrong mount from this.
  */
 class UwbUvdarFusionNode : public rclcpp::Node
 {

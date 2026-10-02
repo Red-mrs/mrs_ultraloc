@@ -1,31 +1,43 @@
 # Parameters for the UWB + UVDAR fusion node.
 #
 # The top-level key is /** rather than the node name, because a parameter file is
-# matched against a node's fully qualified name: with the node launched in a
-# namespace, as the launch file does, a bare "uwb_uvdar_fusion:" key matches
-# nothing and every value below is silently ignored - no warning, no error, just
-# the code defaults. This file is only ever passed to this one node, so matching
-# any node is exactly the right scope and it keeps working under any namespace.
+# matched against a node's fully qualified name: with the node launched in a namespace,
+# as launch/fusion.launch.py does, a bare "uwb_uvdar_fusion:" key matches nothing and
+# every value below is silently ignored - no warning, no error, just the code defaults.
+# This file is only ever passed to this one node, so matching any node is exactly the
+# right scope and it keeps working under any namespace.
 
 /**:
   ros__parameters:
 
     # Inputs. Both default to absolute topics because the producers namespace
-    # themselves independently of this node: the bearing endpoint publishes under
-    # the UAV namespace configured in uvdar_core's config file, and the UWB driver
+    # themselves independently of this node: the bearing endpoint publishes under the
+    # UAV namespace configured in uvdar_core's config file, and the UWB driver
     # publishes relative to whatever container it runs in.
     #
-    # These two are what a node started by camera_rig.launch.py is given anyway -
-    # the bringup sets both per camera, since one file cannot state N bearing
-    # topics - so they matter only when this node is launched on its own. The
-    # "camera_0" below is a name from before the rig slots existed; a rig's slots
-    # are camera, camera_front, camera_back, camera_left, camera_right. Pointing
-    # this at a name nothing publishes is not an error - the node starts, and the
-    # only symptom is that no bearing is ever fresh.
-    bearing_topic: "/uav/uvdar/bearing/camera_0/observations"
+    # ONE bearing topic, for a rig of one camera or three. uvdar_core's bearing node
+    # has a single publisher, on that file's `bearing.output_topic`, and it transforms
+    # every camera it is configured with into `bearing.output_frame` before publishing.
+    # So a rig adds cameras to that one topic rather than adding topics: the number of
+    # cameras is decided by which uvdar_core config was started
+    # (config/default_bearing.yaml for two, config/three_bluefox_bearing.yaml for
+    # three), and nothing here changes with it.
+    #
+    # One topic is not one combined message, though: the endpoint publishes one message
+    # per camera callback, so a blinker two cameras can see arrives as two messages and
+    # the newest replaces the stored bearing rather than being averaged with the other.
+    # See README.md's "Two cameras on one blinker".
+    #
+    # The names uvdar_core's configs list under `bearing.inputs[].output_topic` are not
+    # topics that exist - that node reads `bearing.output_topic` from the section, not
+    # from its inputs - so pointing this at one gives a stream that never arrives. The
+    # node reports that once per paired id and does not refuse to start, which is why
+    # the value below is the merged one and not a per-camera name.
+    bearing_topic: "/uav/uvdar/bearing/observations"
     uwb_topic: "/uav/uwb/distance"
 
-    # Relative to this node, so it lands in the node's namespace.
+    # Relative to this node, so it lands in the node's namespace - which is the
+    # vehicle's, so the output moves with `uav_name`.
     output_topic: "uwb_uvdar_fusion/targets"
 
     # How often the newest bearing and newest range are combined and published.
@@ -49,7 +61,11 @@
     # hexadecimal; the UVDAR side is the signal id the tracker decodes from that
     # vehicle's blinker. Both sides must be unique in the list.
     #
-    # These are the four pairs the ROS 1 fusion used.
+    # These are the four pairs the ROS 1 fusion used. Note the quoting, and note that a
+    # list cannot be given on a ROS 2 command line at all - which is why
+    # launch/fusion.launch.py takes `uwb_uvdar_id_pairs:=0x13:3,0x15:0` as text and
+    # hands the node a real list. An empty `[]` in a YAML parameter file aborts rclcpp
+    # on Jazzy, because a sequence with no elements carries no element type.
     uwb_uvdar_id_pairs: ["0xAA:28", "0xBB:29", "0xCC:30", "0xDD:31"]
 
     # Covariance reported on the output. When the bearing message carries a usable

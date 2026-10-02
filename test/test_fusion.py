@@ -29,8 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fusion_test_helpers import (  # noqa: E402
     BEARING_SIGMA_RAD, BEARING_TIMEOUT_SEC, BEARING_TOPIC, EXPECTED_TOLERANCE, FRAME, MAX_RANGE_M,
     OUTPUT_TOPIC, PUBLISH_RATE_HZ, RANGE_SIGMA_M, RANGE_TIMEOUT_SEC, UWB_TOPIC, FusionDriver,
-    SteadyFeed, expected_position_covariance, flatten, max_abs_diff, tangent_covariance,
-    unit_bearing, wait_for,
+    SteadyFeed, expected_position_covariance, flatten, max_abs_diff, mean_direction,
+    tangent_covariance, unit_bearing, wait_for,
 )
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +62,8 @@ PAIR = {
     'rate': (0xF1, 117),
     'staleness': (0xF2, 118),
     'noempty': (0xF3, 119),
+    'merged': (0xF4, 120),
+    'crossbatch': (0xF5, 121),
 }
 
 OWN_ADDRESS = 0xAA
@@ -281,7 +283,9 @@ class TestGeometry:
             assert abs(target.distance - distance) < EXPECTED_TOLERANCE
 
     def test_frame_id_is_the_bearing_frame_unrotated(self, driver):
-        """No mounting rotation is applied, by design - see the README."""
+        """The bearing is used in the frame it arrives in, unrotated - see the README:
+        uvdar_core's bearing endpoint has already rotated every camera into its
+        `output_frame`, so a rotation applied here would be applied twice."""
         uwb_address, signal_id = PAIR['frame']
         bearing = unit_bearing(math.radians(10.0), 0.0)
 
@@ -350,6 +354,157 @@ class TestGeometry:
             for target, distance, label in ((lower, 2.5, 'near'), (upper, 9.0, 'far')):
                 norm = math.dist((target.position.x, target.position.y, target.position.z), (0, 0, 0))
                 assert abs(norm - distance) < EXPECTED_TOLERANCE, f'{label} target used the wrong range'
+
+    def test_two_observations_of_one_id_in_one_batch_are_averaged(self, driver):
+        """Two cameras' sightings handed over *together* are averaged into one direction.
+
+        This is the node's in-batch rule, and it is the one the multi-camera case below
+        does NOT normally reach: uvdar_core's bearing node builds one output message per
+        tracker callback and `onTrackerOutput` runs per camera input, so a real rig
+        delivers each camera's ray in its own batch and the two never meet in one
+        `observations` list. The averaging is kept and tested because the message does not
+        name its camera, so nothing here can tell a merged producer from a per-camera one -
+        but read `test_two_cameras_reporting_in_alternate_batches_overwrite` beside it for
+        what a `three_bluefox_bearing.yaml` rig actually does.
+
+        One of the two is `predicted` and the other measured, which is what a pair from a
+        rig where only one camera has a fresh detector association would look like.
+        """
+        uwb_address, signal_id = PAIR['merged']
+        distance = 6.0
+
+        # One camera either side of the vehicle's x-z plane, 15 deg apart in azimuth at a
+        # shared 5 deg elevation. Wide enough that "the last one won" and "the two were
+        # averaged" differ by about 0.8 m at this range rather than by float noise.
+        near = unit_bearing(math.radians(-7.5), math.radians(5.0))
+        far = unit_bearing(math.radians(7.5), math.radians(5.0))
+
+        cov_near = tangent_covariance(near, math.radians(1.0))
+        cov_far = tangent_covariance(far, math.radians(3.0))
+
+        average = mean_direction([near, far])
+
+        # The expectation is a direction, not a scaled one: the test's own arithmetic is
+        # checked here so a mean that was never renormalised could not become the
+        # baseline the rest of the test is measured against.
+        assert abs(math.sqrt(sum(c ** 2 for c in average)) - 1.0) < 1e-12, 'mean is not a unit vector'
+        assert abs(average[1]) < 1e-12, 'the test geometry is not symmetric about x-z'
+        # Two points at equal elevation average to one slightly *above* that elevation -
+        # the mean of the elevations is not the elevation of the mean direction - because
+        # the sum is shorter than 2 and the renormalisation lifts every component.
+        assert average[2] > near[2], 'averaging two unit vectors must shorten z, not lengthen it'
+
+        mark = driver.marks()
+
+        def supplier():
+            driver.publish_bearings([
+                (signal_id, near, flatten(cov_near), False),
+                (signal_id, far, flatten(cov_far), True),
+            ])
+            driver.publish_range(OWN_ADDRESS, uwb_address, distance)
+
+        with SteadyFeed(driver).start(supplier):
+            target = expect_fused(driver, mark, signal_id)
+
+            expected = tuple(component * distance for component in average)
+            got = (target.position.x, target.position.y, target.position.z)
+            error = max_abs_diff(got, expected)
+            assert error < EXPECTED_TOLERANCE, f'position is not mean(b1, b2) * r ({error:.3e})'
+
+            # The two cameras' directions were each a few degrees off this one, so a
+            # result equal to either of them means the second was overwritten, not merged.
+            for label, bearing in (('first camera', near), ('second camera', far)):
+                assert max_abs_diff(got, tuple(c * distance for c in bearing)) > 1e-3, \
+                    f'the target sits exactly on the {label} - the pair was not averaged'
+
+            # Published once: two observations of one id are one target, not two entries.
+            batch = driver.messages()[-1]
+            assert [t.id for t in batch.targets].count(signal_id) == 1, \
+                'one id produced two targets'
+
+            # The covariance is averaged across the observations, not summed: two cameras
+            # agreeing about one blinker do not double its angular uncertainty. A sum
+            # would be exactly twice the bearing term below, and keeping only one
+            # observation would leave a 1 deg or a 3 deg term where the mean has 2 deg, so
+            # checking the exact value settles all three readings at once.
+            mean_cov = [[(cov_near[i][j] + cov_far[i][j]) / 2.0 for j in range(3)] for i in range(3)]
+            expected_cov = expected_position_covariance(average, distance, mean_cov, RANGE_SIGMA_M)
+            error = max_abs_diff(target.covariance, flatten(expected_cov))
+            assert error < 1e-9, f'P is not r^2*mean(Pb) + sigma_r^2*bb^T (max element error {error:.3e})'
+
+            # `bearing_predicted` is the OR of "not measured": a blinker one camera still
+            # has a fresh fix on is a measured target, even though the other camera is
+            # only coasting. Reporting it as predicted would make a downstream filter drop
+            # a live target, so this is the one field where the two observations are
+            # combined by anything other than an average.
+            assert not target.bearing_predicted, 'a target one camera still measures was reported as predicted'
+
+    def test_two_cameras_reporting_in_alternate_batches_overwrite(self, driver):
+        """What a `three_bluefox_bearing.yaml` rig actually delivers, and what it costs.
+
+        uvdar_core's bearing node publishes once per tracker callback and that callback
+        runs per camera input, so each camera's ray reaches this node in its own batch
+        (bearing_node.cpp:218-221, whose comment spells out the same reading). So the
+        averaging above is NOT the multi-camera path - each batch replaces `bearings_[id]`
+        and the camera that reported last wins outright.
+
+        Asserted rather than merely noted because the result is a target whose direction
+        alternates between the two cameras at the tracker rate, at full amplitude: a
+        ~1.5 m jump here, not a subtle bias. A downstream filter seeing that would report
+        a fusion that disagrees with itself, which is what this test's name is for. It is
+        a characterisation of current behaviour, deliberately - changing the behaviour is
+        a decision about which measurement to prefer, and the message carries no camera
+        name to make that decision with.
+
+        Driven by hand rather than through `SteadyFeed` so there is no race to lose: the
+        node republishes at 20 Hz while these two batches are written back to back, so a
+        feed thread could have a fusion tick land between them and the answer would then
+        depend on scheduling. Each step instead publishes, waits for the fused value to
+        settle, and asserts on it - and keeps the range fresh across both, so "newest
+        bearing wins" is being tested rather than "the other one expired".
+        """
+        uwb_address, signal_id = PAIR['crossbatch']
+        distance = 6.0
+
+        left = unit_bearing(math.radians(-7.5), math.radians(5.0))
+        right = unit_bearing(math.radians(7.5), math.radians(5.0))
+
+        def fused_matches(bearing):
+            """True once a fusion tick has published this camera's direction exactly."""
+            expected = tuple(c * distance for c in bearing)
+            return any(max_abs_diff((t.position.x, t.position.y, t.position.z), expected) < 1e-9
+                       for _, t in driver.targets_since(mark, signal_id))
+
+        mark = driver.marks()
+        driver.publish_range(OWN_ADDRESS, uwb_address, distance)
+        driver.publish_bearings([(signal_id, left, None, False)])
+        assert wait_for(lambda: fused_matches(left), 8.0), \
+            'the first batch was never fused at all'
+
+        # Both sightings are well inside bearing_timeout_sec (0.5 s) at this point, so a
+        # node that averaged the pair, or kept the first, or kept both, is distinguishable
+        # here from one that replaced the sample.
+        driver.publish_range(OWN_ADDRESS, uwb_address, distance)
+        driver.publish_bearings([(signal_id, right, None, False)])
+        assert wait_for(lambda: fused_matches(right), 8.0), \
+            ('the second camera\'s batch never took effect - the node is not keeping the '
+             'newest observation for an id it has already seen')
+
+        target = expect_fused(driver, mark, signal_id)
+        got = (target.position.x, target.position.y, target.position.z)
+        mean = tuple(c * distance for c in mean_direction([left, right]))
+        assert max_abs_diff(got, mean) > 1e-3, \
+            'the two batches were averaged; each batch replaces the sample on its own'
+
+        # The same target, once: replacement happens per id, so one blinker stays one
+        # target as each camera reports.
+        assert [t.id for t in driver.messages()[-1].targets].count(signal_id) == 1
+
+        # How far the direction swings per batch, which is the whole disagreement between
+        # the two cameras - nothing here damps it.
+        span = max_abs_diff(tuple(c * distance for c in left),
+                            tuple(c * distance for c in right))
+        assert span > 1.0, f'test geometry too tight to show the alternation ({span:.3f} m)'
 
 
 class TestCovariance:
